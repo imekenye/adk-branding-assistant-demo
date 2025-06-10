@@ -1,0 +1,28 @@
+# Development Environment Configuration (2025)
+api_endpoints:
+  replicate: "https://api.replicate.com/v1/"
+  openai: "https://api.openai.com/v1/"
+  google_ai: "https://generativelanguage.googleapis.com/v1beta/"
+
+storage:
+  local_path: "./data/"
+  max_file_size: "10MB"
+  allowed_formats: ["jpg", "png", "pdf", "svg", "webp"]
+
+models:
+  primary: "gemini-2.0-flash"
+  logo_generation:
+    priority: ["gpt-4o", "imagen-3", "flux-1.1-pro", "gemini-2.0-flash"]
+  fallback: "gemini-2.0-flash"
+
+rate_limits:
+  gpt_4o: 60              # requests per minute  
+  flux_1_1_pro: 100       # Replicate rate limits
+  imagen_3: 50            # Google AI rate limits
+  gemini_flash: 200       # Generous limits
+
+quality_standards:
+  min_resolution: [512, 512]
+  max_colors: 5
+  min_contrast_ratio: 4.5  # WCAG AA standard
+  scalability_threshold: 0.8
