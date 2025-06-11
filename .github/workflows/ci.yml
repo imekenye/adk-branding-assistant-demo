@@ -299,3 +299,81 @@ jobs:
         # Get and display the service URL
         SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
         echo "🚀 Buildpack deployment URL: $SERVICE_URL"
+
+  deploy-hackathon-manual:
+    name: Deploy to Google Cloud (Manual Build)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/hackathon-demo'
+    needs: test
+    environment: production
+    
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Authenticate to Google Cloud (Keyless WIF)
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/1018023867491/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+        service_account: 'github-actions-deployer@my-ai-projects-422803.iam.gserviceaccount.com'
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      
+    - name: Prepare manual deployment
+      run: |
+        echo "🛠️ Manual deployment approach to bypass permission issues..."
+        
+        # Generate requirements.txt
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        source ~/.bashrc || true
+        export PATH="$HOME/.cargo/bin:$PATH"
+        
+        uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
+        sed -i '/^-e \./d' requirements.txt
+        
+        # Use simple Dockerfile
+        if [ -f "Dockerfile.simple" ]; then
+          cp Dockerfile.simple Dockerfile
+          echo "🔄 Using simple Dockerfile"
+        fi
+        
+        echo "✅ Manual deployment preparation complete"
+      
+    - name: Build and deploy manually 
+      run: |
+        echo "🚀 Starting manual build and deployment..."
+        
+        PROJECT_ID="my-ai-projects-422803"
+        SERVICE_NAME="adk-branding-assistant-manual"
+        REGION="us-central1"
+        IMAGE_URL="gcr.io/$PROJECT_ID/$SERVICE_NAME:latest"
+        
+        # Build image locally in Cloud Build
+        echo "🐳 Building Docker image..."
+        gcloud builds submit --tag $IMAGE_URL .
+        
+        # Deploy the pre-built image
+        echo "🚀 Deploying to Cloud Run..."
+        gcloud run deploy $SERVICE_NAME \
+          --image $IMAGE_URL \
+          --platform managed \
+          --region $REGION \
+          --allow-unauthenticated \
+          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
+          --memory 2Gi \
+          --cpu 2 \
+          --timeout 3600 \
+          --max-instances 10 \
+          --port 8000
+        
+        echo "✅ Manual deployment completed!"
+        
+        # Get service URL
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
+        echo "🚀 Manual deployment URL: $SERVICE_URL"
