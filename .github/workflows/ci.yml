@@ -94,85 +94,124 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       
-    - name: Prepare for deployment
+    - name: Prepare for deployment with optimizations
       run: |
-        echo "📦 Using direct package installation approach..."
-        echo "✅ All dependencies will be resolved from pyproject.toml during Docker build"
+        echo "📦 Generating requirements.txt for production deployment..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        source ~/.bashrc || true
+        export PATH="$HOME/.cargo/bin:$PATH"
+        
+        # Generate clean requirements.txt
+        uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
+        sed -i '/^-e \./d' requirements.txt
+        
+        echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
+        echo "📋 Core dependencies:"
+        grep -E "^(fastapi|uvicorn|google-adk)" requirements.txt || echo "Core deps not found in requirements"
+      
+    - name: Configure Docker build cache
+      run: |
+        echo "🔧 Enabling Docker BuildKit for better caching..."
+        echo "DOCKER_BUILDKIT=1" >> $GITHUB_ENV
+        echo "BUILDKIT_PROGRESS=plain" >> $GITHUB_ENV
       
     - name: Debug Project Files
       run: |
         echo "📁 Project structure:"
         ls -la
         echo ""
-        echo "🐳 Dockerfile content:"
-        if [ -f "Dockerfile" ]; then
-          cat Dockerfile
-        else
-          echo "❌ No Dockerfile found!"
-        fi
+        echo "🐳 Available Dockerfiles:"
+        ls -la Dockerfile* || echo "No Dockerfiles found"
         echo ""
-        echo "📦 requirements.txt info:"
+        echo "📦 requirements.txt content (first 20 lines):"
         if [ -f "requirements.txt" ]; then
-          echo "✅ requirements.txt found ($(wc -l < requirements.txt) lines)"
-          echo "📋 First 10 dependencies:"
-          head -20 requirements.txt | grep -E '^[a-zA-Z]' | head -10 || true
+          head -20 requirements.txt
         else
           echo "❌ No requirements.txt found!"
         fi
         echo ""
-        echo "🐍 Python files:"
-        find . -name "*.py" | head -10     
+        echo "🐍 Source structure:"
+        find . -maxdepth 2 -name "*.py" | head -10     
     
-    - name: Deploy to Cloud Run with pip-based build
+    - name: Deploy to Cloud Run with enhanced error handling
       run: |
-        echo "🚀 Starting minimal Docker deployment for troubleshooting..."
+        echo "🚀 Starting optimized Docker deployment..."
         
-        # Use minimal Dockerfile for testing
-        mv Dockerfile.minimal Dockerfile
-        echo "🔄 Switched to minimal Dockerfile"
+        # Use the minimal optimized Dockerfile
+        if [ -f "Dockerfile.minimal" ]; then
+          cp Dockerfile.minimal Dockerfile
+          echo "🔄 Using minimal optimized Dockerfile"
+        else
+          echo "⚠️ Dockerfile.minimal not found, using existing Dockerfile"
+        fi
         
-        # Start deployment and capture output
-        set +e  # Don't exit on error so we can capture logs
+        # Set deployment variables
+        PROJECT_ID="my-ai-projects-422803"
+        SERVICE_NAME="adk-branding-assistant"
+        REGION="us-central1"
         
-        gcloud run deploy adk-branding-assistant \
+        echo "🔧 Deployment configuration:"
+        echo "  Project: $PROJECT_ID"
+        echo "  Service: $SERVICE_NAME"
+        echo "  Region: $REGION"
+        
+        # Start deployment with enhanced monitoring
+        set +e  # Don't exit on error so we can capture detailed logs
+        
+        echo "🚀 Starting Cloud Run deployment..."
+        timeout 1800 gcloud run deploy $SERVICE_NAME \
           --source . \
           --platform managed \
-          --region us-central1 \
+          --region $REGION \
           --allow-unauthenticated \
           --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
           --memory 2Gi \
           --cpu 2 \
           --timeout 3600 \
           --max-instances 10 \
+          --concurrency 80 \
+          --cpu-throttling \
           --verbosity=debug 2>&1 | tee deploy_output.log
         
         DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
         
-        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+        if [ $DEPLOY_EXIT_CODE -eq 124 ]; then
+          echo "⏰ Deployment timed out after 30 minutes"
+        elif [ $DEPLOY_EXIT_CODE -ne 0 ]; then
           echo "❌ Deployment failed with exit code $DEPLOY_EXIT_CODE"
-          echo "🔍 Fetching recent build logs..."
+        fi
+        
+        # Enhanced error diagnostics
+        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+          echo ""
+          echo "🔍 Enhanced diagnostics:"
+          echo "========================"
           
-          # Get the most recent failed build
-          echo "📋 Recent builds:"
-          gcloud builds list --limit=5 --format="table(id,status,createTime)" || true
+          # Get build information
+          echo "📋 Recent Cloud Builds:"
+          gcloud builds list --limit=3 --format="table(id,status,createTime,logUrl)" || true
+          echo ""
           
-          # Get the most recent build ID
-          RECENT_BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)" --filter="status:FAILURE" 2>/dev/null || true)
+          # Get the most recent build for detailed logs
+          RECENT_BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)" 2>/dev/null || echo "")
           
           if [ ! -z "$RECENT_BUILD_ID" ]; then
-            echo "🔍 Fetching logs for build: $RECENT_BUILD_ID"
-            gcloud builds log $RECENT_BUILD_ID || true
-          else
-            echo "⚠️ Could not find recent failed build. Checking all recent builds..."
-            ALL_RECENT_BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)" 2>/dev/null || true)
-            if [ ! -z "$ALL_RECENT_BUILD_ID" ]; then
-              echo "🔍 Fetching logs for most recent build: $ALL_RECENT_BUILD_ID"
-              gcloud builds log $ALL_RECENT_BUILD_ID || true
-            fi
+            echo "🔍 Detailed logs for build: $RECENT_BUILD_ID"
+            echo "----------------------------------------"
+            gcloud builds log $RECENT_BUILD_ID --format="text" || true
+            echo ""
           fi
           
-          echo "📋 Deployment output:"
-          cat deploy_output.log
+          # Check Cloud Run service status
+          echo "🔍 Cloud Run service status:"
+          gcloud run services describe $SERVICE_NAME --region $REGION --format="text" 2>/dev/null || echo "Service not found or inaccessible"
+          echo ""
+          
+          # Show deployment output
+          echo "📋 Deployment command output:"
+          echo "-----------------------------"
+          cat deploy_output.log || echo "No deployment output captured"
           
           exit $DEPLOY_EXIT_CODE
         else
@@ -183,3 +222,76 @@ jobs:
       run: |
         echo "🚀 Hackathon demo deployed with pip!"
         gcloud run services describe adk-branding-assistant --region us-central1 --format 'value(status.url)'
+
+  deploy-hackathon-buildpack:
+    name: Deploy to Google Cloud (Buildpack Fallback)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/hackathon-demo'
+    needs: test
+    environment: production
+    
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Authenticate to Google Cloud (Keyless WIF)
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/1018023867491/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+        service_account: 'github-actions-deployer@my-ai-projects-422803.iam.gserviceaccount.com'
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      
+    - name: Prepare buildpack deployment
+      run: |
+        echo "📦 Preparing buildpack deployment (more reliable than Docker builds)..."
+        
+        # Ensure requirements.txt exists
+        if [ ! -f "requirements.txt" ]; then
+          echo "📦 Generating requirements.txt..."
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          source ~/.bashrc || true
+          export PATH="$HOME/.cargo/bin:$PATH"
+          
+          uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
+          sed -i '/^-e \./d' requirements.txt
+        fi
+        
+        echo "✅ Requirements ready for buildpack deployment"
+        echo "📋 Dependencies count: $(wc -l < requirements.txt)"
+      
+    - name: Deploy with Cloud Build Packs
+      run: |
+        echo "🚀 Starting Cloud Buildpack deployment..."
+        
+        SERVICE_NAME="adk-branding-assistant-bp"
+        REGION="us-central1"
+        
+        # Deploy using Cloud Buildpacks instead of Docker
+        gcloud run deploy $SERVICE_NAME \
+          --source . \
+          --platform managed \
+          --region $REGION \
+          --allow-unauthenticated \
+          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
+          --memory 2Gi \
+          --cpu 2 \
+          --timeout 3600 \
+          --max-instances 10 \
+          --concurrency 80 \
+          --cpu-throttling \
+          --execution-environment gen2 \
+          --use-http2 \
+          --verbosity=debug
+        
+        echo "✅ Buildpack deployment completed!"
+        
+        # Get and display the service URL
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
+        echo "🚀 Buildpack deployment URL: $SERVICE_URL"
