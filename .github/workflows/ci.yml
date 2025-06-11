@@ -72,6 +72,9 @@ jobs:
     
     - name: Deploy to Cloud Run
       run: |
+        echo "🚀 Starting deployment with build log capture..."
+        
+        # Start deployment in background and capture the build operation
         gcloud run deploy adk-branding-assistant \
           --source . \
           --platform managed \
@@ -81,7 +84,23 @@ jobs:
           --memory 2Gi \
           --cpu 2 \
           --max-instances 10 \
-          --verbosity=debug
+          --async 2>&1 | tee deploy_output.txt || true
+        
+        # Extract build operation ID from output
+        BUILD_OP=$(grep -o 'Operation.*\[.*\]' deploy_output.txt | head -1 | grep -o '\[.*\]' | tr -d '[]') || true
+        
+        if [ ! -z "$BUILD_OP" ]; then
+          echo "📋 Found build operation: $BUILD_OP"
+          echo "🔍 Streaming build logs..."
+          gcloud builds log --stream $BUILD_OP || true
+        fi
+        
+        # Now wait for the deployment to complete
+        echo "⏳ Waiting for deployment to complete..."
+        gcloud run services describe adk-branding-assistant --region=us-central1 --format="value(status.url)" || {
+          echo "❌ Deployment failed"
+          exit 1
+        }
         
     - name: Get deployment URL
       run: |
