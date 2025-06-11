@@ -50,6 +50,8 @@ jobs:
       run: |
         echo "📦 Generating requirements.txt for deployment testing..."
         uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
+        # Remove the editable installation line that causes Docker build issues
+        sed -i '/^-e \./d' requirements.txt
         echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
         echo "📋 First 10 dependencies:"
         head -10 requirements.txt
@@ -98,6 +100,8 @@ jobs:
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
         uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
+        # Remove the editable installation line that causes Docker build issues
+        sed -i '/^-e \./d' requirements.txt
         echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
         echo "📋 First 10 dependencies:"
         head -20 requirements.txt | grep -E '^[a-zA-Z]' | head -10 || true
