@@ -69,6 +69,28 @@ jobs:
     
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
+      
+    - name: Debug Project Files
+      run: |
+        echo "📁 Project structure:"
+        ls -la
+        echo ""
+        echo "🐳 Dockerfile content:"
+        if [ -f "Dockerfile" ]; then
+          cat Dockerfile
+        else
+          echo "❌ No Dockerfile found!"
+        fi
+        echo ""
+        echo "📦 pyproject.toml content:"
+        if [ -f "pyproject.toml" ]; then
+          cat pyproject.toml
+        else
+          echo "❌ No pyproject.toml found!"
+        fi
+        echo ""
+        echo "🐍 Python files:"
+        find . -name "*.py" | head -10     
     
     - name: Deploy to Cloud Run
       run: |
@@ -101,7 +123,7 @@ jobs:
           echo "❌ Deployment failed"
           exit 1
         }
-        
+     
     - name: Get deployment URL
       run: |
         echo "🚀 Hackathon demo deployed!"
