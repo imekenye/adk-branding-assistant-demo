@@ -138,12 +138,15 @@ jobs:
       run: |
         echo "🚀 Starting optimized Docker deployment..."
         
-        # Use the minimal optimized Dockerfile
-        if [ -f "Dockerfile.minimal" ]; then
-          cp Dockerfile.minimal Dockerfile
-          echo "🔄 Using minimal optimized Dockerfile"
+        # Use the simplest Dockerfile that addresses container startup issues
+        if [ -f "Dockerfile.simple" ]; then
+          cp Dockerfile.simple Dockerfile
+          echo "🔄 Using simple Dockerfile with startup fixes"
+        elif [ -f "Dockerfile.fixed" ]; then
+          cp Dockerfile.fixed Dockerfile
+          echo "🔄 Using fixed Dockerfile as fallback"
         else
-          echo "⚠️ Dockerfile.minimal not found, using existing Dockerfile"
+          echo "⚠️ No optimized Dockerfile found, using existing Dockerfile"
         fi
         
         # Set deployment variables
@@ -159,20 +162,21 @@ jobs:
         # Start deployment with enhanced monitoring
         set +e  # Don't exit on error so we can capture detailed logs
         
-        echo "🚀 Starting Cloud Run deployment..."
-        timeout 1800 gcloud run deploy $SERVICE_NAME \
-          --source . \
-          --platform managed \
-          --region $REGION \
-          --allow-unauthenticated \
-          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
-          --memory 2Gi \
-          --cpu 2 \
-          --timeout 3600 \
-          --max-instances 10 \
-          --concurrency 80 \
-          --cpu-throttling \
-          --verbosity=debug 2>&1 | tee deploy_output.log
+                 echo "🚀 Starting Cloud Run deployment..."
+         timeout 1800 gcloud run deploy $SERVICE_NAME \
+           --source . \
+           --platform managed \
+           --region $REGION \
+           --allow-unauthenticated \
+           --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
+           --memory 2Gi \
+           --cpu 2 \
+           --timeout 3600 \
+           --max-instances 10 \
+           --concurrency 80 \
+           --port 8000 \
+           --cpu-throttling \
+           --verbosity=debug 2>&1 | tee deploy_output.log
         
         DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
         
