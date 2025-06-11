@@ -15,8 +15,15 @@ jobs:
       with:
         ref: hackathon-demo
         fetch-depth: 0
+        token: ${{ secrets.SYNC_TOKEN }}  # Use your token for checkout
+    
+    - name: Configure git credentials
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git remote set-url origin https://${{ secrets.SYNC_TOKEN }}@github.com/imekenye/adk-branding-assistant.git
     
     - name: Push to public repository
       run: |
-         git remote add public-repo https://${{ secrets.SYNC_TOKEN }}@github.com/imekenye/adk-branding-assistant-demo.git
-         git push public-repo hackathon-demo:main --force
+        git remote add public-repo https://${{ secrets.SYNC_TOKEN }}@github.com/imekenye/adk-branding-assistant-demo.git
+        git push public-repo hackathon-demo:main --force

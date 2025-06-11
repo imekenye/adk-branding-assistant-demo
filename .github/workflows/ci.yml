@@ -80,8 +80,9 @@ jobs:
           --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }}" \
           --memory 2Gi \
           --cpu 2 \
-          --max-instances 10
-    
+          --max-instances 10 \
+          --verbosity=debug
+        
     - name: Get deployment URL
       run: |
         echo "🚀 Hackathon demo deployed!"
