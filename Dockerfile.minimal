@@ -1,0 +1,37 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install minimal system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy only essential files
+COPY pyproject.toml .
+COPY agents/ ./agents/
+COPY tools/ ./tools/
+
+# Install with minimal dependencies
+RUN pip install --no-cache-dir --no-deps fastapi uvicorn google-adk
+
+# Copy the rest
+COPY . .
+
+# Install just the local package without dependencies (since we installed them above)
+RUN pip install --no-cache-dir --no-deps -e .
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash app && \
+    chown -R app:app /app
+
+USER app
+
+# Expose port
+EXPOSE 8000
+
+# Set environment variable
+ENV PORT=8000
+
+# Start application
+CMD ["adk", "web", "--host", "0.0.0.0", "--port", "8000"] 

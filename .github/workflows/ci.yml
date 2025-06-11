@@ -125,7 +125,11 @@ jobs:
     
     - name: Deploy to Cloud Run with pip-based build
       run: |
-        echo "🚀 Starting pip-based deployment..."
+        echo "🚀 Starting minimal Docker deployment for troubleshooting..."
+        
+        # Use minimal Dockerfile for testing
+        mv Dockerfile.minimal Dockerfile
+        echo "🔄 Switched to minimal Dockerfile"
         
         # Start deployment and capture output
         set +e  # Don't exit on error so we can capture logs
