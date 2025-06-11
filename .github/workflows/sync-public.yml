@@ -1,0 +1,22 @@
+name: Sync to Public Demo Repository
+
+on:
+  push:
+    branches: [ hackathon-demo ]
+
+jobs:
+  sync:
+    name: Push to Public Repository
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout hackathon-demo branch
+      uses: actions/checkout@v4
+      with:
+        ref: hackathon-demo
+        fetch-depth: 0
+    
+    - name: Push to public repository
+      run: |
+        git remote add public-repo https://${{ secrets.GITHUB_TOKEN }}@github.com/YOURUSERNAME/adk-branding-assistant-demo.git
+        git push public-repo hackathon-demo:main --force

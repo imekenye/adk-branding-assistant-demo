@@ -1,0 +1,88 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, hackathon-demo ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test & Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install dependencies
+      run: uv sync --all-extras
+    
+    - name: Code formatting check
+      run: uv run black --check .
+    
+    - name: Import sorting check
+      run: uv run isort --check-only .
+    
+    - name: Type checking
+      run: uv run mypy agents/ tools/ --ignore-missing-imports
+    
+    - name: Test ADK integration
+      run: |
+        uv run python -c "
+        import google.adk
+        print(f'✅ Google ADK v{google.adk.__version__}')
+        from agents.coordinator import root_agent
+        print(f'✅ Agent loaded: {root_agent.name}')
+        "
+
+  deploy-hackathon:
+    name: Deploy to Google Cloud (Hackathon)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/hackathon-demo'
+    needs: test
+    environment: production
+    
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Authenticate to Google Cloud (Keyless WIF)
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+        service_account: 'github-actions-deployer@PROJECT_ID.iam.gserviceaccount.com'
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+    
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy adk-branding-assistant \
+          --source . \
+          --platform managed \
+          --region us-central1 \
+          --allow-unauthenticated \
+          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }}" \
+          --memory 2Gi \
+          --cpu 2 \
+          --max-instances 10
+    
+    - name: Get deployment URL
+      run: |
+        echo "🚀 Hackathon demo deployed!"
+        gcloud run services describe adk-branding-assistant --region us-central1 --format 'value(status.url)'
