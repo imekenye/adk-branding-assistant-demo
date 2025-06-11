@@ -92,11 +92,13 @@ jobs:
         echo "🐍 Python files:"
         find . -name "*.py" | head -10     
     
-    - name: Deploy to Cloud Run
+    - name: Deploy to Cloud Run with build log capture
       run: |
         echo "🚀 Starting deployment..."
         
-        # Deploy synchronously with detailed logging
+        # Start deployment and capture output
+        set +e  # Don't exit on error so we can capture logs
+        
         gcloud run deploy adk-branding-assistant \
           --source . \
           --platform managed \
@@ -107,7 +109,40 @@ jobs:
           --cpu 2 \
           --timeout 3600 \
           --max-instances 10 \
-          --verbosity=debug
+          --verbosity=debug 2>&1 | tee deploy_output.log
+        
+        DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
+        
+        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+          echo "❌ Deployment failed with exit code $DEPLOY_EXIT_CODE"
+          echo "🔍 Fetching recent build logs..."
+          
+          # Get the most recent failed build
+          echo "📋 Recent builds:"
+          gcloud builds list --limit=5 --format="table(id,status,createTime)" || true
+          
+          # Get the most recent build ID
+          RECENT_BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)" --filter="status:FAILURE" 2>/dev/null || true)
+          
+          if [ ! -z "$RECENT_BUILD_ID" ]; then
+            echo "🔍 Fetching logs for build: $RECENT_BUILD_ID"
+            gcloud builds log $RECENT_BUILD_ID || true
+          else
+            echo "⚠️ Could not find recent failed build. Checking all recent builds..."
+            ALL_RECENT_BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)" 2>/dev/null || true)
+            if [ ! -z "$ALL_RECENT_BUILD_ID" ]; then
+              echo "🔍 Fetching logs for most recent build: $ALL_RECENT_BUILD_ID"
+              gcloud builds log $ALL_RECENT_BUILD_ID || true
+            fi
+          fi
+          
+          echo "📋 Deployment output:"
+          cat deploy_output.log
+          
+          exit $DEPLOY_EXIT_CODE
+        else
+          echo "✅ Deployment successful!"
+        fi
      
     - name: Get deployment URL
       run: |
