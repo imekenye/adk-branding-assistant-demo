@@ -64,4 +64,48 @@ Client Input → Discovery Agent → Research Agent → Visual Direction Agent �
 ### 4. Complete Brand System
 - Logo variations and formats
 - Brand guidelines documentation
-- Asset package generation..
+- Asset package generation
+
+## 🔧 Development Setup
+
+This project uses a hybrid approach:
+- **Development**: UV for fast dependency management and development workflow
+- **Production**: pip for reliable Docker deployments and CI/CD
+
+### Quick Start (Development)
+```bash
+# Automatic setup with uv
+./scripts/dev-setup.sh
+
+# Or manually:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync --all-extras
+uv run adk web
+```
+
+### Common Development Commands
+```bash
+uv run adk --help              # Show CLI help
+uv run adk web                 # Start web server
+uv run black .                 # Format code
+uv run isort .                 # Sort imports
+uv run mypy agents/ tools/     # Type checking
+uv run pytest                  # Run tests
+```
+
+### Production Deployment
+The project automatically deploys to Google Cloud Run using pip:
+- Docker builds use `requirements.txt` (generated from `pyproject.toml`)
+- Optimized for cloud deployment reliability
+- CI/CD validates both uv (dev) and pip (prod) installations
+
+## 🐳 Docker & Deployment
+
+**Local testing:**
+```bash
+docker build -t adk-branding-assistant .
+docker run -p 8000:8000 adk-branding-assistant
+```
+
+**Production:** 
+Automatic deployment via GitHub Actions to Google Cloud Run on `hackathon-demo` branch.

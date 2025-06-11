@@ -3,46 +3,17 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv (latest version)
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:/root/.cargo/bin:$PATH"
-
-# Verify uv installation
-RUN echo "Checking uv installation..." && \
-    which uv && \
-    uv --version && \
-    echo "uv installation verified"
-
-# Copy dependency files first for better caching
-COPY pyproject.toml ./
-COPY uv.lock ./
-
-# Debug: Show what files we have
-RUN echo "Files in /app:" && ls -la
-
-# Install dependencies
-RUN echo "Installing dependencies..." && \
-    uv sync --frozen --no-dev && \
-    echo "Dependencies installed successfully"
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
-
-# Debug: Show final file structure
-RUN echo "Final file structure:" && \
-    ls -la && \
-    echo "Python files:" && \
-    find . -name "*.py" -type f | head -10
-
-# Test the adk command
-RUN echo "Testing adk command..." && \
-    uv run adk --help && \
-    echo "adk command test successful"
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app && \
@@ -60,5 +31,5 @@ ENV PORT=8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Start application
-CMD ["uv", "run", "adk", "web", "--host", "0.0.0.0", "--port", "8000"]
+# Start application using the installed package
+CMD ["adk", "web", "--host", "0.0.0.0", "--port", "8000"]

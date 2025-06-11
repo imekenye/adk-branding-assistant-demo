@@ -40,3 +40,7 @@ data/outputs/
 data/uploads/
 data/cache/
 *.log
+
+# Package management
+uv.lock
+requirements.txt  # Generated file - keep only uv.lock in version control

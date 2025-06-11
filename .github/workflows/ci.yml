@@ -20,12 +20,12 @@ jobs:
       with:
         python-version: '3.11'
     
-    - name: Install uv
+    - name: Install uv for development testing
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
-    - name: Install dependencies
+    - name: Install dependencies with uv
       run: uv sync --all-extras
     
     - name: Code formatting check
@@ -44,6 +44,19 @@ jobs:
         print(f'✅ Google ADK v{google.adk.__version__}')
         from agents.coordinator import root_agent
         print(f'✅ Agent loaded: {root_agent.name}')
+        "
+    
+    - name: Test pip installation (deployment validation)
+      run: |
+        echo "🧪 Testing pip-based installation (simulating deployment)..."
+        python -m venv test_env
+        source test_env/bin/activate
+        pip install -r requirements.txt
+        python -c "
+        import google.adk
+        print(f'✅ Google ADK v{google.adk.__version__} (via pip)')
+        from agents.coordinator import root_agent
+        print(f'✅ Agent loaded: {root_agent.name} (via pip)')
         "
 
   deploy-hackathon:
@@ -70,6 +83,16 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       
+    - name: Generate requirements.txt for deployment
+      run: |
+        echo "📦 Generating requirements.txt from uv.lock for deployment..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        uv export --format requirements-txt --locked --no-dev > requirements.txt
+        echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
+        echo "📋 First 10 dependencies:"
+        head -20 requirements.txt | grep -E '^[a-zA-Z]' | head -10 || true
+      
     - name: Debug Project Files
       run: |
         echo "📁 Project structure:"
@@ -82,19 +105,21 @@ jobs:
           echo "❌ No Dockerfile found!"
         fi
         echo ""
-        echo "📦 pyproject.toml content:"
-        if [ -f "pyproject.toml" ]; then
-          cat pyproject.toml
+        echo "📦 requirements.txt info:"
+        if [ -f "requirements.txt" ]; then
+          echo "✅ requirements.txt found ($(wc -l < requirements.txt) lines)"
+          echo "📋 First 10 dependencies:"
+          head -20 requirements.txt | grep -E '^[a-zA-Z]' | head -10 || true
         else
-          echo "❌ No pyproject.toml found!"
+          echo "❌ No requirements.txt found!"
         fi
         echo ""
         echo "🐍 Python files:"
         find . -name "*.py" | head -10     
     
-    - name: Deploy to Cloud Run with build log capture
+    - name: Deploy to Cloud Run with pip-based build
       run: |
-        echo "🚀 Starting deployment..."
+        echo "🚀 Starting pip-based deployment..."
         
         # Start deployment and capture output
         set +e  # Don't exit on error so we can capture logs
@@ -146,5 +171,5 @@ jobs:
      
     - name: Get deployment URL
       run: |
-        echo "🚀 Hackathon demo deployed!"
+        echo "🚀 Hackathon demo deployed with pip!"
         gcloud run services describe adk-branding-assistant --region us-central1 --format 'value(status.url)'
