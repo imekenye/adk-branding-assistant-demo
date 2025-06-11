@@ -94,35 +94,20 @@ jobs:
     
     - name: Deploy to Cloud Run
       run: |
-        echo "🚀 Starting deployment with build log capture..."
+        echo "🚀 Starting deployment..."
         
-        # Start deployment in background and capture the build operation
+        # Deploy synchronously with detailed logging
         gcloud run deploy adk-branding-assistant \
           --source . \
           --platform managed \
           --region us-central1 \
           --allow-unauthenticated \
-          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }}" \
+          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
           --memory 2Gi \
           --cpu 2 \
+          --timeout 3600 \
           --max-instances 10 \
-          --async 2>&1 | tee deploy_output.txt || true
-        
-        # Extract build operation ID from output
-        BUILD_OP=$(grep -o 'Operation.*\[.*\]' deploy_output.txt | head -1 | grep -o '\[.*\]' | tr -d '[]') || true
-        
-        if [ ! -z "$BUILD_OP" ]; then
-          echo "📋 Found build operation: $BUILD_OP"
-          echo "🔍 Streaming build logs..."
-          gcloud builds log --stream $BUILD_OP || true
-        fi
-        
-        # Now wait for the deployment to complete
-        echo "⏳ Waiting for deployment to complete..."
-        gcloud run services describe adk-branding-assistant --region=us-central1 --format="value(status.url)" || {
-          echo "❌ Deployment failed"
-          exit 1
-        }
+          --verbosity=debug
      
     - name: Get deployment URL
       run: |
