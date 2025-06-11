@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: Test & Sync
 
 on:
   push:
@@ -46,334 +46,39 @@ jobs:
         print(f'✅ Agent loaded: {root_agent.name}')
         "
     
-    - name: Generate requirements.txt for pip testing
+    - name: Generate requirements.txt for pip compatibility
       run: |
-        echo "📦 Generating requirements.txt for deployment testing..."
+        echo "📦 Generating requirements.txt for pip compatibility..."
         uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
-        # Remove the editable installation line that causes Docker build issues
         sed -i '/^-e \./d' requirements.txt
         echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
-        echo "📋 First 10 dependencies:"
-        head -10 requirements.txt
     
-    - name: Test pip installation (deployment validation)
+    - name: Test pip installation compatibility
       run: |
-        echo "🧪 Testing pip-based installation (simulating deployment)..."
+        echo "🧪 Testing pip-based installation compatibility..."
         python -m venv test_env
         source test_env/bin/activate
         pip install -r requirements.txt
-        pip install -e .  # Install the local package in editable mode
+        pip install -e .
         python -c "
         import google.adk
         print(f'✅ Google ADK v{google.adk.__version__} (via pip)')
         from agents.coordinator import root_agent
         print(f'✅ Agent loaded: {root_agent.name} (via pip)')
         "
-
-  deploy-hackathon:
-    name: Deploy to Google Cloud (Hackathon)
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/hackathon-demo'
-    needs: test
-    environment: production
+        deactivate
+        rm -rf test_env
     
-    permissions:
-      contents: read
-      id-token: write  # Required for Workload Identity Federation
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Authenticate to Google Cloud (Keyless WIF)
-      uses: google-github-actions/auth@v2
-      with:
-        workload_identity_provider: 'projects/1018023867491/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
-        service_account: 'github-actions-deployer@my-ai-projects-422803.iam.gserviceaccount.com'
-    
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
-      
-    - name: Prepare for deployment with optimizations
+    - name: Sync requirements.txt to repository
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/hackathon-demo'
       run: |
-        echo "📦 Generating requirements.txt for production deployment..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        source ~/.bashrc || true
-        export PATH="$HOME/.cargo/bin:$PATH"
-        
-        # Generate clean requirements.txt
-        uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
-        sed -i '/^-e \./d' requirements.txt
-        
-        echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
-        echo "📋 Core dependencies:"
-        grep -E "^(fastapi|uvicorn|google-adk)" requirements.txt || echo "Core deps not found in requirements"
-      
-    - name: Configure Docker build cache
-      run: |
-        echo "🔧 Enabling Docker BuildKit for better caching..."
-        echo "DOCKER_BUILDKIT=1" >> $GITHUB_ENV
-        echo "BUILDKIT_PROGRESS=plain" >> $GITHUB_ENV
-      
-    - name: Debug Project Files
-      run: |
-        echo "📁 Project structure:"
-        ls -la
-        echo ""
-        echo "🐳 Available Dockerfiles:"
-        ls -la Dockerfile* || echo "No Dockerfiles found"
-        echo ""
-        echo "📦 requirements.txt content (first 20 lines):"
-        if [ -f "requirements.txt" ]; then
-          head -20 requirements.txt
+        if git diff --quiet requirements.txt; then
+          echo "📋 requirements.txt is up to date"
         else
-          echo "❌ No requirements.txt found!"
+          echo "📋 requirements.txt updated, committing changes..."
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add requirements.txt
+          git commit -m "Update requirements.txt [skip ci]" || exit 0
+          git push || echo "No changes to push"
         fi
-        echo ""
-        echo "🐍 Source structure:"
-        find . -maxdepth 2 -name "*.py" | head -10     
-    
-    - name: Deploy to Cloud Run with enhanced error handling
-      run: |
-        echo "🚀 Starting optimized Docker deployment..."
-        
-        # Use the simplest Dockerfile that addresses container startup issues
-        if [ -f "Dockerfile.simple" ]; then
-          cp Dockerfile.simple Dockerfile
-          echo "🔄 Using simple Dockerfile with startup fixes"
-        elif [ -f "Dockerfile.fixed" ]; then
-          cp Dockerfile.fixed Dockerfile
-          echo "🔄 Using fixed Dockerfile as fallback"
-        else
-          echo "⚠️ No optimized Dockerfile found, using existing Dockerfile"
-        fi
-        
-        # Set deployment variables
-        PROJECT_ID="my-ai-projects-422803"
-        SERVICE_NAME="adk-branding-assistant"
-        REGION="us-central1"
-        
-        echo "🔧 Deployment configuration:"
-        echo "  Project: $PROJECT_ID"
-        echo "  Service: $SERVICE_NAME"
-        echo "  Region: $REGION"
-        
-        # Start deployment with enhanced monitoring
-        set +e  # Don't exit on error so we can capture detailed logs
-        
-        echo "🚀 Starting Cloud Run deployment with source..."
-        timeout 1800 gcloud run deploy $SERVICE_NAME \
-          --source . \
-          --platform managed \
-          --region $REGION \
-          --allow-unauthenticated \
-          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
-          --memory 2Gi \
-          --cpu 2 \
-          --timeout 3600 \
-          --max-instances 10 \
-          --concurrency 80 \
-          --port 8000 \
-          --cpu-throttling \
-          --verbosity=debug 2>&1 | tee deploy_output.log
-        
-        DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
-        
-        if [ $DEPLOY_EXIT_CODE -eq 124 ]; then
-          echo "⏰ Deployment timed out after 30 minutes"
-        elif [ $DEPLOY_EXIT_CODE -ne 0 ]; then
-          echo "❌ Deployment failed with exit code $DEPLOY_EXIT_CODE"
-        fi
-        
-        # Enhanced error diagnostics
-        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
-          echo ""
-          echo "🔍 Enhanced diagnostics:"
-          echo "========================"
-          
-          # Get build information
-          echo "📋 Recent Cloud Builds:"
-          gcloud builds list --limit=3 --format="table(id,status,createTime,logUrl)" || true
-          echo ""
-          
-          # Get the most recent build for detailed logs
-          RECENT_BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)" 2>/dev/null || echo "")
-          
-          if [ ! -z "$RECENT_BUILD_ID" ]; then
-            echo "🔍 Detailed logs for build: $RECENT_BUILD_ID"
-            echo "----------------------------------------"
-            gcloud builds log $RECENT_BUILD_ID --format="text" || true
-            echo ""
-          fi
-          
-          # Check Cloud Run service status
-          echo "🔍 Cloud Run service status:"
-          gcloud run services describe $SERVICE_NAME --region $REGION --format="text" 2>/dev/null || echo "Service not found or inaccessible"
-          echo ""
-          
-          # Show deployment output
-          echo "📋 Deployment command output:"
-          echo "-----------------------------"
-          cat deploy_output.log || echo "No deployment output captured"
-          
-          exit $DEPLOY_EXIT_CODE
-        else
-          echo "✅ Deployment successful!"
-        fi
-     
-    - name: Get deployment URL
-      run: |
-        echo "🚀 Hackathon demo deployed with pip!"
-        gcloud run services describe adk-branding-assistant --region us-central1 --format 'value(status.url)'
-
-  deploy-hackathon-buildpack:
-    name: Deploy to Google Cloud (Buildpack Fallback)
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/hackathon-demo'
-    needs: test
-    environment: production
-    
-    permissions:
-      contents: read
-      id-token: write
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Authenticate to Google Cloud (Keyless WIF)
-      uses: google-github-actions/auth@v2
-      with:
-        workload_identity_provider: 'projects/1018023867491/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
-        service_account: 'github-actions-deployer@my-ai-projects-422803.iam.gserviceaccount.com'
-    
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
-      
-    - name: Prepare buildpack deployment
-      run: |
-        echo "📦 Preparing buildpack deployment (more reliable than Docker builds)..."
-        
-        # Ensure requirements.txt exists
-        if [ ! -f "requirements.txt" ]; then
-          echo "📦 Generating requirements.txt..."
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          source ~/.bashrc || true
-          export PATH="$HOME/.cargo/bin:$PATH"
-          
-          uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
-          sed -i '/^-e \./d' requirements.txt
-        fi
-        
-        echo "✅ Requirements ready for buildpack deployment"
-        echo "📋 Dependencies count: $(wc -l < requirements.txt)"
-      
-    - name: Deploy with Cloud Build Packs
-      run: |
-        echo "🚀 Starting Cloud Buildpack deployment..."
-        
-        SERVICE_NAME="adk-branding-assistant-bp"
-        REGION="us-central1"
-        
-        # Deploy using Cloud Buildpacks instead of Docker
-        gcloud run deploy $SERVICE_NAME \
-          --source . \
-          --platform managed \
-          --region $REGION \
-          --allow-unauthenticated \
-          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
-          --memory 2Gi \
-          --cpu 2 \
-          --timeout 3600 \
-          --max-instances 10 \
-          --concurrency 80 \
-          --cpu-throttling \
-          --execution-environment gen2 \
-          --use-http2 \
-          --verbosity=debug
-        
-        echo "✅ Buildpack deployment completed!"
-        
-        # Get and display the service URL
-        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
-        echo "🚀 Buildpack deployment URL: $SERVICE_URL"
-
-  deploy-hackathon-manual:
-    name: Deploy to Google Cloud (Manual Build)
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/hackathon-demo'
-    needs: test
-    environment: production
-    
-    permissions:
-      contents: read
-      id-token: write
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Authenticate to Google Cloud (Keyless WIF)
-      uses: google-github-actions/auth@v2
-      with:
-        workload_identity_provider: 'projects/1018023867491/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
-        service_account: 'github-actions-deployer@my-ai-projects-422803.iam.gserviceaccount.com'
-    
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
-      
-    - name: Prepare manual deployment
-      run: |
-        echo "🛠️ Manual deployment approach to bypass permission issues..."
-        
-        # Generate requirements.txt
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        source ~/.bashrc || true
-        export PATH="$HOME/.cargo/bin:$PATH"
-        
-        uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
-        sed -i '/^-e \./d' requirements.txt
-        
-        # Use simple Dockerfile
-        if [ -f "Dockerfile.simple" ]; then
-          cp Dockerfile.simple Dockerfile
-          echo "🔄 Using simple Dockerfile"
-        fi
-        
-        echo "✅ Manual deployment preparation complete"
-      
-    - name: Build and deploy manually 
-      run: |
-        echo "🚀 Starting manual build and deployment..."
-        
-        PROJECT_ID="my-ai-projects-422803"
-        SERVICE_NAME="adk-branding-assistant-manual"
-        REGION="us-central1"
-        IMAGE_URL="gcr.io/$PROJECT_ID/$SERVICE_NAME:latest"
-        
-        # Build image locally in Cloud Build
-        echo "🐳 Building Docker image..."
-        gcloud builds submit --tag $IMAGE_URL .
-        
-        # Deploy the pre-built image
-        echo "🚀 Deploying to Cloud Run..."
-        gcloud run deploy $SERVICE_NAME \
-          --image $IMAGE_URL \
-          --platform managed \
-          --region $REGION \
-          --allow-unauthenticated \
-          --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},PORT=8000" \
-          --memory 2Gi \
-          --cpu 2 \
-          --timeout 3600 \
-          --max-instances 10 \
-          --port 8000
-        
-        echo "✅ Manual deployment completed!"
-        
-        # Get service URL
-        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
-        echo "🚀 Manual deployment URL: $SERVICE_URL"
