@@ -8,15 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
+# Copy all files first
 COPY . .
 
-# Install the application itself in editable mode
-RUN pip install --no-cache-dir -e .
+# Install the package and its dependencies in one step
+RUN pip install --no-cache-dir .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app && \

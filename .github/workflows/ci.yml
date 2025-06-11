@@ -94,17 +94,10 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       
-    - name: Generate requirements.txt for deployment
+    - name: Prepare for deployment
       run: |
-        echo "📦 Generating requirements.txt from uv.lock for deployment..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
-        # Remove the editable installation line that causes Docker build issues
-        sed -i '/^-e \./d' requirements.txt
-        echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
-        echo "📋 First 10 dependencies:"
-        head -20 requirements.txt | grep -E '^[a-zA-Z]' | head -10 || true
+        echo "📦 Using direct package installation approach..."
+        echo "✅ All dependencies will be resolved from pyproject.toml during Docker build"
       
     - name: Debug Project Files
       run: |
