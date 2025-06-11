@@ -49,8 +49,10 @@ jobs:
     - name: Generate requirements.txt for pip testing
       run: |
         echo "📦 Generating requirements.txt for deployment testing..."
-        uv export --format requirements-txt --locked --no-dev > requirements.txt
+        uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
         echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
+        echo "📋 First 10 dependencies:"
+        head -10 requirements.txt
     
     - name: Test pip installation (deployment validation)
       run: |
@@ -58,6 +60,7 @@ jobs:
         python -m venv test_env
         source test_env/bin/activate
         pip install -r requirements.txt
+        pip install -e .  # Install the local package in editable mode
         python -c "
         import google.adk
         print(f'✅ Google ADK v{google.adk.__version__} (via pip)')
@@ -94,7 +97,7 @@ jobs:
         echo "📦 Generating requirements.txt from uv.lock for deployment..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        uv export --format requirements-txt --locked --no-dev > requirements.txt
+        uv export --format requirements-txt --locked --no-dev --no-hashes > requirements.txt
         echo "✅ Generated requirements.txt ($(wc -l < requirements.txt) lines)"
         echo "📋 First 10 dependencies:"
         head -20 requirements.txt | grep -E '^[a-zA-Z]' | head -10 || true
