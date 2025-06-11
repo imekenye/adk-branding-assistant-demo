@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.10.0",
+    "aiohttp-cors>=0.7.0",
     "google-adk>=1.2.1",
     "google-generativeai>=0.8.0",
     "httpx>=0.28.0",
@@ -52,6 +53,9 @@ multi_line_output = 3
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
+
+[project.scripts]
+adk = "main:cli"
 
 [build-system]
 requires = ["hatchling"]

@@ -13,11 +13,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.cargo/bin:$PATH"
 
 # Copy project files
-COPY pyproject.toml ./
-COPY . .
+COPY pyproject.toml uv.lock ./
 
 # Install dependencies
-RUN uv sync --frozen
+RUN uv sync --frozen --no-dev
+
+# Copy application code
+COPY . .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app
